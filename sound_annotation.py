@@ -36,8 +36,7 @@ def get_files_to_annotate(config, storage_client):
     if len(listdir(base)) > 0:
         print("Deleting old annotation files")
         os.system("rm " + join(base+"*.json"))
-        if isfile(join(base+"*.wav")):
-            os.system("rm " + join(base+"*.wav"))
+        os.system("rm " + join(base+"*.wav"))
 
     blobs = storage_client.list_blobs(config["google_storage_bucket"])
     bucket = storage_client.bucket(config["google_storage_bucket"])
@@ -81,6 +80,9 @@ label_lookup = {
 
 def create_annotation_files(config, raw_file):
     base = join(config["destination_directory"], "annotation")
+    if not isfile(join(base, "Label Track.txt")):
+        print("Label Track.txt not found")
+        return
     with open(join(base, "Label Track.txt"), "r") as fp:
         text = fp.read()
         text = text.split("\n")
@@ -125,12 +127,20 @@ def create_annotation_files(config, raw_file):
                 dest_filename = join(base, annotation_filename + ".json")
                 with open(dest_filename, 'w') as fp:
                     json.dump(annotation_descr, fp, indent=4)
+        os.remove(join(base, "Label Track.txt"))
 
-def upload_annotation_files(config):
-    storage_client = storage.Client()
+def upload_annotation_files(config, storage_client):
+    base = join(config["destination_directory"], "annotation")
     bucket = storage_client.bucket("knowmeai_bucket")
-    #blob = bucket.blob(dest_filename)
-    #blob.upload_from_filename("tmp.json")
+    files = listdir(base)
+    for file in files:
+        source_file = join(base, file)
+        if isfile(source_file):
+            dest_file = join("annotation", config["client"], "annotation", file)
+            print("copying from ", source_file, "  to  ", dest_file )
+            blob = bucket.blob(dest_file)
+            blob.upload_from_filename(source_file)
+    os.system("rm " + base + "/*.json")
 
 
 def annotate_files(config, raw_files):
@@ -161,9 +171,10 @@ storage_client = storage.Client.from_service_account_json(
 )
 
 
-#raw_files = get_files_to_annotate(config, storage_client)
-#annotate_files(config, raw_files)
+raw_files = get_files_to_annotate(config, storage_client)
+annotate_files(config, raw_files)
 create_annotation_files(config, "2021-3-4-2-32456")
+upload_annotation_files(config, storage_client)
 exit()
 """
 def get_cloud_file_list(config, storage_client, client):
