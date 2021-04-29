@@ -1,0 +1,16 @@
+{
+  "google_storage_key": "/home/vidar/projects/knowmeai/sensors/KnowMeAI-326518239433.json",
+  "google_storage_bucket": "knowmeai_bucket",
+  "destination_directory": "/home/vidar/projects/knowmeai/sound_annotation/data/",
+  "models_directory": "/home/vidar/projects/knowmeai/sensor_models",
+  "update_interval_hours": 0,
+  "face_detection_method": "dlib",
+  "face_detection_method_choices": "sfd, blaze or dlib",
+  "postprocess_all": 1,
+  "postprocess_only": 0,
+  "postprocess": ["sound", "face", "skeleton"],
+  "postprocess_choices": "sound, face and skeleton",
+  "display_face": 1,
+  "client": "test_client",
+  "sensor_configuration_file": "/home/vidar/projects/knowmeai/sensors/default_config.json"
+}
