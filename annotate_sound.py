@@ -38,6 +38,7 @@ class Gui(Tk):
         self.gfiles = gfiles
         self.target_folder = folder
         self.bucket = gclient.bucket(BUCKET)
+        self.annotations = {}
 
 
         # Clients menu
@@ -98,13 +99,12 @@ class Gui(Tk):
             "env": ("sound_environment", 103)
         }
         base = join(self.target_folder, "annotation")
-        if not isfile(join(base, "Label Track.txt")):
-            print("Label Track.txt not found: ", join(base, "Label Track.txt"))
+        if not isfile(join(base, "Label.txt")):
+            print("Label.txt not found: ", join(base, "Label.txt"))
             return False
-        with open(join(base, "Label Track.txt"), "r") as fp:
+        with open(join(base, "Label.txt"), "r") as fp:
             text = fp.read()
             text = text.lower().split("\n")
-            print(text)
             for annotation in text:
                 annotation = annotation.split("\t")
                 if len(annotation) == 3:
@@ -147,22 +147,35 @@ class Gui(Tk):
                     dest_filename = join(base, annotation_filename + ".json")
                     with open(dest_filename, 'w') as fp:
                         json.dump(annotation_descr, fp, indent=4)
-            print("Deleting Label Track.txt")
+            print("Deleting ", join(base, "*.txt"))
             os.system("rm " + join(base, "*.txt"))
             return True
 
     def annotate_files(self, _, frame_num=0):
         f = self.file_list.focus()
         f_file, f_status, sound_file = self.file_list.item(f)["values"]
+
+        # Create an import-file with current annotations to Audicity
+        if sound_file in self.annotations.keys():
+            with open("data/annotation/Import.txt", "w") as fp:
+                for i in range(len(self.annotations[sound_file])):
+                    fp.write(str(self.annotations[sound_file][i][0]) + "\t" +
+                            str(self.annotations[sound_file][i][1]) + "\t" +
+                            ["non", "cli", "car", "env"][self.annotations[sound_file][i][2]- 100] + "\n")
+                    blob_name = self.annotations[sound_file][i][3]
+                    print("Annotation file to be deleted: ", blob_name)
+                    blob = self.bucket.blob(blob_name)
+                    if blob.exists():
+                        blob.delete()
+
         # Get file from google storage
         dest_file = join(self.target_folder, sound_file.split("/")[-1])
         sound_blob = self.bucket.blob(sound_file)
         sound_blob.download_to_filename(dest_file)
-        print("Starting Audacity")
         # Start audacity
         p = subprocess.Popen(("/snap/bin/audacity", dest_file))
         p.wait()
-        print("Returning from Audacity")
+        os.system("rm " + "data/annotation/Import.txt")
         os.system("rm " + dest_file)
         # Create annotation files
         if self.create_annotation_files(sound_file):
@@ -176,7 +189,17 @@ class Gui(Tk):
         annotation = json.loads(blob.download_as_string())
         sound_file = annotation.get("video", None).replace("https://storage.cloud.google.com/knowmeai_bucket/", "")
         sound_file = sound_file.replace(".mp4", ".wav")
+
+        # update a list of sound annotations for the recording
+        if annotation.get("label_id", None) >= 100:
+            if sound_file not in self.annotations.keys():
+                self.annotations[sound_file] = []
+            self.annotations[sound_file].append([annotation.get("start", None),
+                                                 annotation.get("end", None),
+                                                 annotation.get("label_id", None),
+                                                 json_file])
         return annotation.get("label_id", None) >= 100, sound_file
+
 
     def update_json_list(self, value):
         self.file_list.delete(*self.file_list.get_children())
@@ -206,12 +229,11 @@ class Gui(Tk):
 
         for file in annotation_files:
             annotated, sound_file = self.get_annotation_status(file)
-            print(file, sound_file)
             if sound_file in raw_list.keys() and annotated:
-                print("Sound file in raw list")
                 raw_list[sound_file] = True
             else:
                 raw_list[sound_file] = annotated
+
 
         for item in raw_list:
             fname = item.split("/")[-1]
