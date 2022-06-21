@@ -56,10 +56,8 @@ class Gui(Tk):
 
         # Json file list
         self.file_list = Treeview(
-            #self, columns=("file", "annotation_status", "gitem", "actual_bbox")
             self, columns = ("file", "annotation_status", "video")
         )
-        #self.file_list.heading("#1", text="file", anchor=W)
         self.file_list.heading("#1", text="File", anchor=W)
         self.file_list.heading("#2", text="Sound annotation", anchor=W)
         self.file_list.column("#1", stretch=YES, minwidth=300)
@@ -70,14 +68,14 @@ class Gui(Tk):
         scrollbar = Scrollbar(self, command=self.file_list.yview)
         scrollbar.pack(side=LEFT, fill=Y, anchor=NW, padx=10, pady=10)
         self.file_list.pack(fill=BOTH, expand=1, side=LEFT, padx=10, pady=10, anchor=W)
-        #self.img_panel.pack(fill=BOTH, expand=1, side=LEFT, padx=10, pady=10, anchor=NW)
 
+        """
         self.bboxes = []
         self.img_scale = 0
         self.current_frame_num = -1
         self.update()
         self.geometry("500x760")
-
+        """
         self.mainloop()
 
     def upload_annotation_files(self, sound_file):
@@ -99,10 +97,15 @@ class Gui(Tk):
             "env": ("sound_environment", 103)
         }
         base = join(self.target_folder, "annotation")
-        if not isfile(join(base, "Label.txt")):
-            print("Label.txt not found: ", join(base, "Label.txt"))
+        files = os.listdir(base)
+        label_file = None
+        for file in files:
+            if file != "Import.txt":
+                label_file = file
+        if label_file is None:
+            print("Label file not found")
             return False
-        with open(join(base, "Label.txt"), "r") as fp:
+        with open(label_file, "r") as fp:
             text = fp.read()
             text = text.lower().split("\n")
             for annotation in text:
@@ -171,18 +174,23 @@ class Gui(Tk):
         # Get file from google storage
         dest_file = join(self.target_folder, sound_file.split("/")[-1])
         sound_blob = self.bucket.blob(sound_file)
-        sound_blob.download_to_filename(dest_file)
-        # Start audacity
-        p = subprocess.Popen(("/snap/bin/audacity", dest_file))
-        p.wait()
-        os.system("rm " + "data/annotation/Import.txt")
-        os.system("rm " + dest_file)
-        # Create annotation files
-        if self.create_annotation_files(sound_file):
-            self.file_list.insert("", 0, values=(f_file, "Yes", sound_file))
-            self.file_list.delete(f)
+        try:
+            sound_blob.download_to_filename(dest_file)
+            # Start audacity
+            p = subprocess.Popen(("/snap/bin/audacity", dest_file))
+            p.wait()
+            files = os.listdir("data/annotation")
+            if "Import.txt" in files:
+                os.system("rm " + "data/annotation/Import.txt")
+            os.system("rm " + dest_file)
+            # Create annotation files
+            if self.create_annotation_files(sound_file):
+                self.file_list.insert("", 0, values=(f_file, "Yes", sound_file))
+                self.file_list.delete(f)
 
-        self.upload_annotation_files(sound_file)
+            self.upload_annotation_files(sound_file)
+        except:
+            print(f"This file does not exist at Google Storage: {sound_file}")
 
     def get_annotation_status(self, json_file):
         blob = self.bucket.blob(json_file)
