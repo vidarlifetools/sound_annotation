@@ -13,9 +13,14 @@ from os.path import isfile, join
 from datetime import datetime
 import json
 import subprocess
+import soundfile
 from functools import partial
 from pathlib import Path
 #from PIL import Image, ImageTk
+
+from pydub import AudioSegment
+from array import array
+
 
 import logging
 
@@ -28,6 +33,37 @@ sys.path.append("..")
 
 GSTORAGE_JSON = "/home/vidar/projects/knowmeai/sensors/KnowMeAI-326518239433.json"
 BUCKET = "knowmeai_bucket"
+
+
+def match_target_amplitude(sound, target_dBFS):
+    change_in_dBFS = target_dBFS - sound.dBFS
+    return sound.apply_gain(change_in_dBFS)
+
+def pydub_to_np(audio: AudioSegment) -> (np.ndarray, int):
+    """
+    Converts pydub audio segment into np.float32 of shape [duration_in_seconds*sample_rate, channels],
+    where each value is in range [-1.0, 1.0].
+    Returns tuple (audio_np_array, sample_rate).
+    """
+    return np.array(audio.get_array_of_samples(), dtype=np.float32).reshape((-1, audio.channels)) / (
+            1 << (8 * audio.sample_width - 1)), audio.frame_rate
+
+def normalize_sound(data, sr=16000, file=None):
+    if file is not None:
+        audio_segment = AudioSegment.from_file(file, "wav")
+    else:
+        data_b = data * 2147483648.0
+        data_b = np.asarray(data_b).astype(np.int32)
+        audio_segment = AudioSegment(
+            data=array('B', data_b.tostring()),
+            frame_rate=sr,
+            sample_width=data_b.dtype.itemsize,
+            channels=1
+        )
+
+    normalized_sound = match_target_amplitude(audio_segment, -20.0)
+    data, rate = pydub_to_np(normalized_sound)
+    return data[:,0]
 
 
 class Gui(Tk):
@@ -105,7 +141,7 @@ class Gui(Tk):
         if label_file is None:
             print("Label file not found")
             return False
-        with open(label_file, "r") as fp:
+        with open(join(base, label_file), "r") as fp:
             text = fp.read()
             text = text.lower().split("\n")
             for annotation in text:
@@ -159,6 +195,7 @@ class Gui(Tk):
         f_file, f_status, sound_file = self.file_list.item(f)["values"]
 
         # Create an import-file with current annotations to Audicity
+        # and delete the annotation file. Assume that the annotation will be modified
         if sound_file in self.annotations.keys():
             with open("data/annotation/Import.txt", "w") as fp:
                 for i in range(len(self.annotations[sound_file])):
@@ -176,6 +213,12 @@ class Gui(Tk):
         sound_blob = self.bucket.blob(sound_file)
         try:
             sound_blob.download_to_filename(dest_file)
+            # Normalize audio on channel 2
+            data, sr = soundfile.read(dest_file)
+            norm_data = normalize_sound(data[:,0], sr=sr)
+            data[:,1] = norm_data
+            soundfile.write(dest_file, data, sr)
+
             # Start audacity
             p = subprocess.Popen(("/snap/bin/audacity", dest_file))
             p.wait()
@@ -184,6 +227,7 @@ class Gui(Tk):
                 os.system("rm " + "data/annotation/Import.txt")
             os.system("rm " + dest_file)
             # Create annotation files
+            print("Start creating annotation file")
             if self.create_annotation_files(sound_file):
                 self.file_list.insert("", 0, values=(f_file, "Yes", sound_file))
                 self.file_list.delete(f)
